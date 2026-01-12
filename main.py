@@ -133,12 +133,35 @@ async def predict_effector_params(guitar_sample_path: str, extracted_guitar_path
         raise Exception(f"이펙터 예측 실패: {str(e)}")
 
 
-async def process_analysis_stream(guitar_sample: UploadFile, original_song: UploadFile):
+async def validate_local_file(path: Path, filename: str, min_duration: float = 0) -> tuple:
+    """
+    로컬에 저장된 오디오 파일 유효성 검증
+    returns: (is_valid, duration, error_message)
+    """
+    file_ext = Path(filename).suffix.lower()
+    
+    if file_ext not in ALLOWED_AUDIO_FORMATS:
+        return False, 0, f"지원하지 않는 파일 형식입니다. {ALLOWED_AUDIO_FORMATS} 만 가능합니다."
+    
+    try:
+        # librosa는 동기 함수이므로 스레드 풀에서 실행하는 것이 좋지만, 여기서는 간단히 처리
+        # 대용량 파일의 경우 비동기 래퍼가 필요할 수 있음
+        y, sr = librosa.load(str(path), sr=None, duration=None)
+        duration = len(y) / sr
+        
+        if duration < min_duration:
+            return False, duration, f"오디오 길이가 너무 짧습니다. 최소 {min_duration}초가 필요합니다. (현재: {duration:.1f}초)"
+            
+        return True, duration, None
+        
+    except Exception as e:
+        return False, 0, f"오디오 파일을 읽을 수 없습니다: {str(e)}"
+
+
+async def process_analysis_stream(guitar_sample_path: Path, song_path: Path, guitar_sample_name: str, song_name: str):
     """
     분석 프로세스를 스트리밍으로 진행 상황 전송
     """
-    guitar_sample_path = None
-    song_path = None
     extracted_guitar_path = None
     
     try:
@@ -146,28 +169,20 @@ async def process_analysis_stream(guitar_sample: UploadFile, original_song: Uplo
         yield f"data: {json.dumps({'status': 'progress', 'progress': 10, 'message': '파일 검증 중...'})}\n\n"
         await asyncio.sleep(0.5)
         
-        is_valid, duration, error = await validate_audio_file(guitar_sample, min_duration=MAX_GUITAR_SAMPLE_DURATION)
+        is_valid, duration, error = await validate_local_file(guitar_sample_path, guitar_sample_name, min_duration=MAX_GUITAR_SAMPLE_DURATION)
         if not is_valid:
             yield f"data: {json.dumps({'status': 'error', 'message': f'기타 샘플: {error}'})}\n\n"
             return
         
-        is_valid, duration, error = await validate_audio_file(original_song, min_duration=MIN_SONG_DURATION)
+        is_valid, duration, error = await validate_local_file(song_path, song_name, min_duration=MIN_SONG_DURATION)
         if not is_valid:
             yield f"data: {json.dumps({'status': 'error', 'message': f'원곡: {error}'})}\n\n"
             return
         
-        # 2단계: 파일 저장 (20%)
-        yield f"data: {json.dumps({'status': 'progress', 'progress': 20, 'message': '파일 저장 중...'})}\n\n"
+        # 2단계: 파일 저장 확인 (20%) - 이미 저장됨
+        yield f"data: {json.dumps({'status': 'progress', 'progress': 20, 'message': '파일 분석 준비 완료...'})}\n\n"
         
-        guitar_sample_path = UPLOAD_DIR / f"guitar_sample_{guitar_sample.filename}"
-        song_path = UPLOAD_DIR / f"song_{original_song.filename}"
-        extracted_guitar_path = UPLOAD_DIR / f"extracted_guitar_{original_song.filename}"
-        
-        async with aiofiles.open(guitar_sample_path, "wb") as f:
-            await f.write(await guitar_sample.read())
-        
-        async with aiofiles.open(song_path, "wb") as f:
-            await f.write(await original_song.read())
+        extracted_guitar_path = UPLOAD_DIR / f"extracted_guitar_{song_name}"
         
         # 3단계: GPU 서버로 기타 추출 (30% ~ 60%)
         yield f"data: {json.dumps({'status': 'progress', 'progress': 30, 'message': '🎸 GPU 서버에 연결 중...'})}\n\n"
