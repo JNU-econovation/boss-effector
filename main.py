@@ -34,40 +34,6 @@ ALLOWED_AUDIO_FORMATS = {'.wav', '.mp3', '.m4a', '.mp4'}
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-
-async def validate_audio_file(file: UploadFile, min_duration: float = 0) -> tuple:
-    """
-    오디오 파일 유효성 검증
-    returns: (is_valid, duration, error_message)
-    """
-    file_ext = Path(file.filename).suffix.lower()
-    
-    if file_ext not in ALLOWED_AUDIO_FORMATS:
-        return False, 0, f"지원하지 않는 파일 형식입니다. {ALLOWED_AUDIO_FORMATS} 만 가능합니다."
-    
-    temp_path = UPLOAD_DIR / f"temp_{file.filename}"
-    
-    try:
-        content = await file.read()
-        async with aiofiles.open(temp_path, "wb") as f:
-            await f.write(content)
-        
-        y, sr = librosa.load(str(temp_path), sr=None, duration=None)
-        duration = len(y) / sr
-        
-        if duration < min_duration:
-            return False, duration, f"오디오 길이가 너무 짧습니다. 최소 {min_duration}초가 필요합니다. (현재: {duration:.1f}초)"
-        
-        await file.seek(0)
-        return True, duration, None
-        
-    except Exception as e:
-        return False, 0, f"오디오 파일을 읽을 수 없습니다: {str(e)}"
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
-
-
 async def extract_guitar_from_song(song_path: str, output_path: str) -> None:
     """
     GPU 서버를 통해 원곡에서 기타 소리 추출
@@ -223,6 +189,7 @@ async def process_analysis_stream(guitar_sample_path: Path, song_path: Path, gui
                     pass
 
 
+# 이건 이렇게 하드코딩 된 게 맞는건가?
 @app.get("/")
 async def root():
     """API 상태 확인"""
