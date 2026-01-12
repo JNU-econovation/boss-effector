@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# FastAPI
+uploads/
+temp/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI Models (큰 파일)
+*.pth
+*.pt
+*.onnx
+*.pb
+models/*.pth
+models/*.pt
+
+# Audio files (테스트용은 제외)
+# *.wav
+# *.mp3
+# *.m4a
+
+# Environment
+.env
+.env.local
+
+# Docker
+*.tar
