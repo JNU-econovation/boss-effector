@@ -189,10 +189,9 @@ async def process_analysis_stream(guitar_sample_path: Path, song_path: Path, gui
                     pass
 
 
-# 이건 이렇게 하드코딩 된 게 맞는건가?
+# 루트 엔드포인트 - 서비스 정보 제공
 @app.get("/")
 async def root():
-    """API 상태 확인"""
     return {
         "service": "Boss Effector API",
         "version": "1.0.0",
@@ -204,10 +203,9 @@ async def root():
         }
     }
 
-
+# 헬스체크 엔드포인트
 @app.get("/health")
 async def health_check():
-    """헬스체크 엔드포인트"""
     gpu_status = "disconnected"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -222,16 +220,12 @@ async def health_check():
         "gpu_server": gpu_status
     }
 
-
+# 기타 이펙터 분석 API
 @app.post("/analyze")
 async def analyze_guitar_effect(
     guitar_sample: UploadFile = File(..., description="기타 샘플 사운드 파일"),
     original_song: UploadFile = File(..., description="원곡 파일")
 ):
-    """
-    기타 이펙터 분석 API
-    GPU 서버를 통해 처리됨
-    """
     # 파일을 미리 저장 (StreamingResponse 내부에서 UploadFile을 읽으면 closed file 에러 발생 가능)
     guitar_sample_path = UPLOAD_DIR / f"guitar_sample_{guitar_sample.filename}"
     song_path = UPLOAD_DIR / f"song_{original_song.filename}"
