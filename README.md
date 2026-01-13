@@ -52,33 +52,33 @@ boss-effector/
 # 의존성 설치
 pip install -r requirements.txt
 
-# 서버 실행
-python main.py
+# 서버 실행 (Reload 모드)
+uvicorn main:app --reload
 ```
 
-메인 서버: `http://localhost:8000`
+메인 서버: `http://localhost:8000` <br>
+스웨거 서버: `http://localhost:8000/docs`
 
 ### 2. GPU 서버 실행 (로컬 테스트용)
 
 ```bash
-cd gpu-server
-
 # 의존성 설치
 pip install -r requirements-gpu.txt
 
-# 서버 실행
-python app.py
+# 서버 실행 (8001 포트 지정)
+uvicorn app:app --app-dir gpu-server --reload --port 8001
 ```
 
-GPU 서버: `http://localhost:8001`
+GPU 서버: `http://localhost:8001`<br>
+스웨거 서버: `http://localhost:8001/docs`
 
 ### 3. 프론트엔드 실행
 
 ```bash
+cd frontend
+
 # Python 간이 서버
 python -m http.server 3000
-
-# 또는 그냥 브라우저에서 frontend/index.html 열기
 ```
 
 프론트엔드: `http://localhost:3000/frontend/index.html`
