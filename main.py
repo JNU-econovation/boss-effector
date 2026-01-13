@@ -199,8 +199,8 @@ async def root():
         "status": "running",
         "gpu_server": GPU_SERVER_URL,
         "endpoints": {
-            "analyze": "/analyze (POST)",
-            "health": "/health (GET)"
+            "analyze": f"{app.url_path_for('analyze_guitar_effect')} (POST)",
+            "health": f"{app.url_path_for('health_check')} (GET)"
         }
     }
 
