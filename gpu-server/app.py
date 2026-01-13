@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import torch
 import torchaudio
@@ -19,6 +19,15 @@ print(f"🚀 Using device: {DEVICE}")
 # 임시 파일 저장
 TEMP_DIR = Path("temp")
 TEMP_DIR.mkdir(exist_ok=True)
+
+def remove_file(path: str):
+    """파일 삭제 유틸리티 (백그라운드 작업용)"""
+    try:
+        p = Path(path)
+        if p.exists():
+            p.unlink()
+    except Exception as e:
+        print(f"⚠️ 파일 삭제 실패 ({path}): {e}")
 
 
 def load_demucs_model():
@@ -171,7 +180,7 @@ async def health_check():
 
 
 @app.post("/extract-guitar")
-async def extract_guitar(audio: UploadFile = File(...)):
+async def extract_guitar(background_tasks: BackgroundTasks, audio: UploadFile = File(...)):
     """
     원곡에서 기타 소리 추출
     GPU를 사용하여 소스 분리
@@ -190,6 +199,9 @@ async def extract_guitar(audio: UploadFile = File(...)):
         # GPU로 기타 추출
         await separate_guitar_with_demucs(str(input_path), str(output_path))
         
+        # 전송 후 파일 삭제 예약
+        background_tasks.add_task(remove_file, str(output_path))
+        
         # 추출된 기타 파일 반환
         return FileResponse(
             output_path,
@@ -198,6 +210,9 @@ async def extract_guitar(audio: UploadFile = File(...)):
         )
         
     except Exception as e:
+        # 에러 발생 시 생성되었을 수도 있는 출력 파일 삭제
+        if output_path and output_path.exists():
+            output_path.unlink()
         raise HTTPException(status_code=500, detail=f"기타 추출 실패: {str(e)}")
     
     finally:
