@@ -101,41 +101,6 @@ docker run --gpus all -p 8001:8001 boss-effector-gpu
 ```bash
 docker run -p 8001:8001 boss-effector-gpu
 ```
-
-## ☁️ 클라우드 배포
-
-### Google Cloud Run에 GPU 서버 배포
-
-```bash
-# 1. Google Cloud 프로젝트 설정
-gcloud config set project YOUR_PROJECT_ID
-
-# 2. Container Registry에 이미지 푸시
-cd gpu-server
-docker build -t gcr.io/YOUR_PROJECT_ID/boss-effector-gpu .
-docker push gcr.io/YOUR_PROJECT_ID/boss-effector-gpu
-
-# 3. Cloud Run 배포 (GPU 사용)
-gcloud run deploy boss-effector-gpu \
-  --image gcr.io/YOUR_PROJECT_ID/boss-effector-gpu \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 4Gi \
-  --cpu 2 \
-  --timeout 600
-
-# 배포된 URL을 환경 변수로 설정
-export GPU_SERVER_URL=https://boss-effector-gpu-xxxxx.run.app
-```
-
-### 메인 서버 배포 (선택사항)
-
-```bash
-# Cloud Run, AWS Lambda, Vercel 등 자유롭게 선택
-# 환경 변수로 GPU_SERVER_URL 설정 필요
-```
-
 ## 📖 사용 방법
 
 1. **기타 샘플 업로드**: 추출하고 싶은 기타 사운드 (최소 8초)
@@ -185,48 +150,6 @@ GPU 서버 헬스체크
   - `extracted_guitar`: 추출된 기타
 - **Response**: 이펙터 타입 및 파라미터 JSON
 
-## 🧠 AI 모델 통합
-
-### 현재 상태
-- 시뮬레이션 코드로 동작
-- 실제 모델 없이도 테스트 가능
-
-### 실제 모델 통합하기
-
-#### 1. 소스 분리 모델 (Demucs)
-
-```python
-# gpu-server/app.py에서
-from demucs.pretrained import get_model
-from demucs.apply import apply_model
-
-def load_demucs_model():
-    model = get_model('htdemucs')
-    model.to(DEVICE)
-    return model
-
-async def separate_guitar_with_demucs(audio_path, output_path):
-    waveform, sr = torchaudio.load(audio_path)
-    sources = apply_model(DEMUCS_MODEL, waveform.to(DEVICE))
-    guitar = sources[0, 2]  # 기타 채널
-    torchaudio.save(output_path, guitar.cpu(), sr)
-```
-
-#### 2. 커스텀 이펙터 예측 모델
-
-```python
-# 모델 학습 후
-torch.save(model.state_dict(), 'models/effector_classifier.pth')
-
-# gpu-server/app.py에서
-def load_effector_model():
-    model = YourEffectorModel()
-    model.load_state_dict(torch.load('models/effector_classifier.pth'))
-    model.to(DEVICE)
-    model.eval()
-    return model
-```
-
 ## ⚙️ 환경 변수
 
 ### 메인 서버 (main.py)
@@ -234,7 +157,7 @@ def load_effector_model():
 GPU_SERVER_URL=http://localhost:8001  # GPU 서버 주소
 ```
 
-### Docker Compose (선택)
+### Docker Compose
 ```yaml
 version: '3.8'
 services:
@@ -303,39 +226,6 @@ for line in response.iter_lines():
         print(line.decode())
 ```
 
-## 💰 예상 클라우드 비용
-
-### Google Cloud Run (GPU)
-- **요금**: 사용한 만큼만 과금
-- **예상**: 요청당 $0.01 ~ $0.05
-- **무료 티어**: 월 200만 요청까지 무료 (CPU만)
-
-### 비용 절감 팁
-1. GPU는 추론 시에만 사용
-2. 모델을 경량화 (Quantization, Pruning)
-3. 배치 처리로 효율성 증가
-4. 캐싱 활용
-
-## 🔮 향후 개선 사항
-
-- [ ] 실제 Demucs 모델 통합
-- [ ] 커스텀 이펙터 분류 모델 학습
-- [ ] 모델 최적화 (TensorRT, ONNX)
-- [ ] 배치 처리 지원
-- [ ] 웹소켓으로 실시간 진행률
-- [ ] 결과 캐싱
-- [ ] 사용자 인증
-- [ ] 파일 업로드 제한 강화
-- [ ] 결과 시각화 (파형, 스펙트로그램)
-
 ## 📝 라이선스
 
 MIT License
-
-## 🤝 기여
-
-프로젝트에 기여를 환영합니다!
-
-## 📧 문의
-
-이슈를 통해 문의해주세요.
