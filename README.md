@@ -189,43 +189,6 @@ services:
 4. **CORS**: 프로덕션에서는 특정 도메인으로 제한
 5. **API 인증**: 프로덕션 배포 시 추가 필요
 
-## 🧪 테스트
-
-### cURL로 GPU 서버 테스트
-
-```bash
-# 기타 추출 테스트
-curl -X POST http://localhost:8001/extract-guitar \
-  -F "audio=@song.mp3" \
-  --output guitar.wav
-
-# 이펙터 예측 테스트
-curl -X POST http://localhost:8001/predict-effector \
-  -F "guitar_sample=@sample.mp3" \
-  -F "extracted_guitar=@guitar.wav"
-```
-
-### Python으로 메인 API 테스트
-
-```python
-import requests
-
-files = {
-    'guitar_sample': open('sample.mp3', 'rb'),
-    'original_song': open('song.mp3', 'rb')
-}
-
-response = requests.post(
-    'http://localhost:8000/analyze', 
-    files=files, 
-    stream=True
-)
-
-for line in response.iter_lines():
-    if line:
-        print(line.decode())
-```
-
 ## 📝 라이선스
 
 MIT License
