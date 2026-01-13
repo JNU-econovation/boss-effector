@@ -44,7 +44,7 @@ boss-effector/
 └── README.md
 ```
 
-## 🚀 로컬 개발 시작하기
+## 🚀 로컬에서 실행하기
 
 ### 1. 메인 API 서버 실행 (CPU)
 
@@ -75,10 +75,8 @@ GPU 서버: `http://localhost:8001`<br>
 ### 3. 프론트엔드 실행
 
 ```bash
-cd frontend
-
-# Python 간이 서버
-python -m http.server 3000
+# 정적 파일 서버 실행
+python -m http.server 3000 -d frontend
 ```
 
 프론트엔드: `http://localhost:3000/frontend/index.html`
