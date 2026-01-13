@@ -7,22 +7,29 @@ AI를 활용하여 음악에서 기타 소리를 추출하고 사용된 이펙�
 ```
 ┌─────────────┐
 │  Frontend   │  (Vanilla JS + HTML/CSS)
-│ index.html  │
+│ index.html  │  User Interface
 └──────┬──────┘
        │ HTTP
        ▼
 ┌─────────────┐
 │  Main API   │  (FastAPI - CPU)
-│  main.py    │  포트: 8000
+│  main.py    │  📍 Localhost:8000 (Orchestrator)
 └──────┬──────┘
-       │ HTTP
+       │ HTTPS (Public URL)
+       │ ☁️ Request to Modal Cloud
        ▼
-┌─────────────┐
-│ GPU Server  │  (FastAPI - GPU, Docker)
-│   app.py    │  포트: 8001
-└─────────────┘
-   - 소스 분리 (Demucs)
-   - 이펙터 예측 (Custom Model)
+┌──────────────────────────────────────────────┐
+│  ⚡ Modal Cloud (Serverless GPU)             │
+│  gpu_server.py                               │
+│  (https://[user]-project-name.modal.run)     │
+├──────────────────────────────────────────────┤
+│  🟢 Auto-scaling Container (On-demand)       │
+│  ┌────────────────────────────────────────┐  │
+│  │ 🧠 GPU Worker (NVIDIA T4/A10G)         │  │
+│  │ - 🎵 Source Separation (Demucs)        │  │
+│  │ - 🎸 Effect Prediction (Custom Model)  │  │
+│  └────────────────────────────────────────┘  │
+└──────────────────────────────────────────────┘
 ```
 
 ## 📁 프로젝트 구조
@@ -188,6 +195,7 @@ services:
 3. **임시 파일 자동 정리**: 처리 후 삭제
 4. **CORS**: 프로덕션에서는 특정 도메인으로 제한
 5. **API 인증**: 프로덕션 배포 시 추가 필요
+
 
 ## 📝 라이선스
 
