@@ -20,6 +20,7 @@ print(f"🚀 Using device: {DEVICE}")
 TEMP_DIR = Path("temp")
 TEMP_DIR.mkdir(exist_ok=True)
 
+
 def remove_file(path: str):
     """파일 삭제 유틸리티 (백그라운드 작업용)"""
     try:
@@ -79,18 +80,20 @@ async def separate_guitar_with_demucs(audio_path: str, output_path: str) -> None
         # guitar = sources[0, 2]  # 기타 채널
         # torchaudio.save(output_path, guitar.cpu(), sr)
         pass
-    
+
     # 시뮬레이션: 원본을 그대로 저장
     y, sr = librosa.load(audio_path, sr=22050)
-    
+
     # 실제로는 AI 모델이 기타만 추출
     # 여기서는 약간의 필터링으로 시뮬레이션
     guitar_enhanced = y * 0.8  # 임시 처리
-    
+
     sf.write(output_path, guitar_enhanced, sr)
 
 
-async def predict_effector_with_model(sample_path: str, extracted_path: str) -> Dict[str, Any]:
+async def predict_effector_with_model(
+    sample_path: str, extracted_path: str
+) -> Dict[str, Any]:
     """
     딥러닝 모델로 이펙터 예측
     """
@@ -98,40 +101,44 @@ async def predict_effector_with_model(sample_path: str, extracted_path: str) -> 
         # 실제 모델 사용 코드
         # sample, sr1 = torchaudio.load(sample_path)
         # extracted, sr2 = torchaudio.load(extracted_path)
-        # 
+        #
         # # 특성 추출
         # features = extract_audio_features(sample, extracted)
         # features_tensor = torch.tensor(features).to(DEVICE)
-        # 
+        #
         # # 모델 추론
         # with torch.no_grad():
         #     output = EFFECTOR_MODEL(features_tensor)
         #     effector_type = decode_effector_type(output)
         #     parameters = decode_parameters(output)
-        # 
+        #
         # return {
         #     "effector_type": effector_type,
         #     "parameters": parameters,
         #     "confidence": float(output.max())
         # }
         pass
-    
+
     # 시뮬레이션: 오디오 특성 분석
     y_sample, sr_sample = librosa.load(sample_path, sr=22050)
     y_extracted, sr_extracted = librosa.load(extracted_path, sr=22050)
-    
+
     # 간단한 오디오 분석
     rms_sample = np.sqrt(np.mean(y_sample**2))
     rms_extracted = np.sqrt(np.mean(y_extracted**2))
-    
+
     # 스펙트럼 분석
-    spectral_centroid_sample = np.mean(librosa.feature.spectral_centroid(y=y_sample, sr=sr_sample))
-    spectral_centroid_extracted = np.mean(librosa.feature.spectral_centroid(y=y_extracted, sr=sr_extracted))
-    
+    spectral_centroid_sample = np.mean(
+        librosa.feature.spectral_centroid(y=y_sample, sr=sr_sample)
+    )
+    spectral_centroid_extracted = np.mean(
+        librosa.feature.spectral_centroid(y=y_extracted, sr=sr_extracted)
+    )
+
     # 시뮬레이션 결과 (실제로는 모델 출력)
     effector_types = ["Overdrive", "Distortion", "Fuzz", "Chorus", "Delay", "Reverb"]
     effector_type = np.random.choice(effector_types)
-    
+
     parameters = {
         "Gain": f"{np.random.uniform(5.0, 9.0):.1f}",
         "Tone": f"{np.random.uniform(4.0, 8.0):.1f}",
@@ -139,9 +146,9 @@ async def predict_effector_with_model(sample_path: str, extracted_path: str) -> 
         "Drive": np.random.choice(["Low", "Medium", "High"]),
         "EQ_Bass": f"{np.random.uniform(-3, 3):+.1f}dB",
         "EQ_Mid": f"{np.random.uniform(-3, 3):+.1f}dB",
-        "EQ_Treble": f"{np.random.uniform(-3, 3):+.1f}dB"
+        "EQ_Treble": f"{np.random.uniform(-3, 3):+.1f}dB",
     }
-    
+
     return {
         "effector_type": effector_type,
         "parameters": parameters,
@@ -149,8 +156,10 @@ async def predict_effector_with_model(sample_path: str, extracted_path: str) -> 
         "analysis": {
             "sample_rms": float(rms_sample),
             "extracted_rms": float(rms_extracted),
-            "spectral_centroid_diff": float(abs(spectral_centroid_sample - spectral_centroid_extracted))
-        }
+            "spectral_centroid_diff": float(
+                abs(spectral_centroid_sample - spectral_centroid_extracted)
+            ),
+        },
     }
 
 
@@ -161,11 +170,13 @@ async def root():
         "service": "Boss Effector GPU Server",
         "device": DEVICE,
         "gpu_available": torch.cuda.is_available(),
-        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
+        "gpu_name": torch.cuda.get_device_name(0)
+        if torch.cuda.is_available()
+        else "N/A",
         "models_loaded": {
             "demucs": DEMUCS_MODEL is not None,
-            "effector": EFFECTOR_MODEL is not None
-        }
+            "effector": EFFECTOR_MODEL is not None,
+        },
     }
 
 
@@ -175,46 +186,46 @@ async def health_check():
     return {
         "status": "healthy",
         "device": DEVICE,
-        "gpu_available": torch.cuda.is_available()
+        "gpu_available": torch.cuda.is_available(),
     }
 
 
 @app.post("/extract-guitar")
-async def extract_guitar(background_tasks: BackgroundTasks, audio: UploadFile = File(...)):
+async def extract_guitar(
+    background_tasks: BackgroundTasks, audio: UploadFile = File(...)
+):
     """
     원곡에서 기타 소리 추출
     GPU를 사용하여 소스 분리
     """
     input_path = None
     output_path = None
-    
+
     try:
         # 임시 파일로 저장
         input_path = TEMP_DIR / f"input_{audio.filename}"
         output_path = TEMP_DIR / f"guitar_{audio.filename}"
-        
+
         with open(input_path, "wb") as f:
             f.write(await audio.read())
-        
+
         # GPU로 기타 추출
         await separate_guitar_with_demucs(str(input_path), str(output_path))
-        
+
         # 전송 후 파일 삭제 예약
         background_tasks.add_task(remove_file, str(output_path))
-        
+
         # 추출된 기타 파일 반환
         return FileResponse(
-            output_path,
-            media_type="audio/wav",
-            filename=f"guitar_{audio.filename}"
+            output_path, media_type="audio/wav", filename=f"guitar_{audio.filename}"
         )
-        
+
     except Exception as e:
         # 에러 발생 시 생성되었을 수도 있는 출력 파일 삭제
         if output_path and output_path.exists():
             output_path.unlink()
         raise HTTPException(status_code=500, detail=f"기타 추출 실패: {str(e)}")
-    
+
     finally:
         # 입력 파일 정리 (출력은 전송 후 정리)
         if input_path and input_path.exists():
@@ -226,8 +237,7 @@ async def extract_guitar(background_tasks: BackgroundTasks, audio: UploadFile = 
 
 @app.post("/predict-effector")
 async def predict_effector(
-    guitar_sample: UploadFile = File(...),
-    extracted_guitar: UploadFile = File(...)
+    guitar_sample: UploadFile = File(...), extracted_guitar: UploadFile = File(...)
 ):
     """
     이펙터 종류와 파라미터 예측
@@ -235,26 +245,28 @@ async def predict_effector(
     """
     sample_path = None
     extracted_path = None
-    
+
     try:
         # 임시 파일로 저장
         sample_path = TEMP_DIR / f"sample_{guitar_sample.filename}"
         extracted_path = TEMP_DIR / f"extracted_{extracted_guitar.filename}"
-        
+
         with open(sample_path, "wb") as f:
             f.write(await guitar_sample.read())
-        
+
         with open(extracted_path, "wb") as f:
             f.write(await extracted_guitar.read())
-        
+
         # GPU로 이펙터 예측
-        result = await predict_effector_with_model(str(sample_path), str(extracted_path))
-        
+        result = await predict_effector_with_model(
+            str(sample_path), str(extracted_path)
+        )
+
         return result
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"이펙터 예측 실패: {str(e)}")
-    
+
     finally:
         # 임시 파일 정리
         for path in [sample_path, extracted_path]:
@@ -267,4 +279,5 @@ async def predict_effector(
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001)
