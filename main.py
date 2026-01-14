@@ -39,17 +39,24 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
-async def extract_guitar_from_song(song_path: str, output_path: str) -> None:
+async def extract_guitar_from_song(song_path: str, guitar_sample_path: str, output_path: str) -> None:
     """
-    GPU 서버를 통해 원곡에서 기타 소리 추출
+    GPU 서버를 통해 원곡에서 기타 소리 추출 (Query-Bandit)
     """
     try:
         async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
             # GPU 서버로 파일 전송
-            async with aiofiles.open(song_path, "rb") as f:
-                file_content = await f.read()
+            async with (
+                aiofiles.open(song_path, "rb") as f_song,
+                aiofiles.open(guitar_sample_path, "rb") as f_query,
+            ):
+                song_content = await f_song.read()
+                query_content = await f_query.read()
 
-            files = {"audio": (Path(song_path).name, file_content, "audio/mpeg")}
+            files = {
+                "audio": (Path(song_path).name, song_content, "audio/mpeg"),
+                "query": (Path(guitar_sample_path).name, query_content, "audio/mpeg"),
+            }
 
             # GPU 서버 API 호출
             response = await client.post(
@@ -191,7 +198,7 @@ async def process_analysis_stream(
 
         yield f"data: {json.dumps({'status': 'progress', 'progress': 40, 'message': '🎸 원곡에서 기타 소리를 추출하고 있습니다... (AI 처리 중)'})}\n\n"
 
-        await extract_guitar_from_song(str(song_path), str(extracted_guitar_path))
+        await extract_guitar_from_song(str(song_path), str(guitar_sample_path), str(extracted_guitar_path))
 
         yield f"data: {json.dumps({'status': 'progress', 'progress': 60, 'message': '✓ 기타 소리 추출 완료!'})}\n\n"
         await asyncio.sleep(0.5)
@@ -244,16 +251,24 @@ async def root():
 @app.get("/health")
 async def health_check():
     gpu_status = "disconnected"
+    gpu_details = {}
+    
     try:
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-            response = await client.get(f"{GPU_SERVER_URL}/health")
+            # GPU 서버의 루트 엔드포인트 호출 (상세 상태 확인)
+            response = await client.get(f"{GPU_SERVER_URL}/")
             if response.status_code == 200:
                 gpu_status = "connected"
+                gpu_details = response.json()
     except Exception as e:
         print(f"Health check error: {str(e)}")
         pass
 
-    return {"status": "healthy", "gpu_server": gpu_status}
+    return {
+        "status": "healthy", 
+        "gpu_server": gpu_status,
+        "gpu_server_details": gpu_details
+    }
 
 
 # 기타 이펙터 분석 API
