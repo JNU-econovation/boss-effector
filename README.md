@@ -1,31 +1,138 @@
-# 🎸 Boss Effector - AI Guitar Effect Analyzer
+# 🎸 Boss Effector Analyzer
 
-**AI를 활용하여 음악에서 기타 소리를 추출하고, 사용된 이펙터와 파라미터를 예측하는 웹 애플리케이션입니다.**
+**Boss Effector**는 사용자가 업로드한 원곡에서 **기타(Guitar) 트랙을 AI로 추출**하고, 해당 기타 소리에 적용된 **이펙터(Effector)와 파라미터를 분석**해주는 웹 서비스입니다.
 
-이 프로젝트는 **FastAPI** 기반의 메인 서버와 **Modal** 기반의 Serverless GPU 서버로 구성되어 있습니다.
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)
+![Modal](https://img.shields.io/badge/Modal-GPU_Server-green?logo=modal&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.1.0-EE4C2C?logo=pytorch&logoColor=white)
 
-## 🏗️ 아키텍처
+---
+
+## ✨ 주요 기능 (Features)
+
+1.  **AI 기반 기타 소리 추출 (Guitar Extraction)**
+    *   **Query-Bandit** 모델을 활용하여 원곡과 기타 샘플(Query)을 기반으로 고품질의 기타 트랙을 분리합니다.
+    *   GPU 가속(A10G)을 통해 빠른 처리 속도를 제공합니다.
+
+2.  **이펙터 파라미터 예측 (Effector Prediction)**
+    *   추출된 기타 소리를 분석하여 사용된 이펙터 종류(Overdrive, Distortion, Reverb 등)를 식별합니다.
+    *   해당 이펙터의 주요 파라미터(Gain, Tone, Level 등) 추천 값을 제공합니다.
+
+3.  **실시간 진행 상태 모니터링**
+    *   Server-Sent Events (SSE)를 통해 분석 진행률을 실시간으로 사용자에게 보여줍니다.
+
+4.  **결과 오디오 즉시 재생**
+    *   분석이 완료되면 추출된 기타 사운드를 웹에서 바로 들어보고 다운로드할 수 있습니다.
+
+---
+
+## 🛠️ 시스템 아키텍처 (Architecture)
 
 ```mermaid
 graph TD
-    Client["Frontend (Web)"] -->|HTTP| MainAPI["Main API Server (Local/Cloud)"]
-    MainAPI -->|HTTPS| Modal["Modal GPU Server (Serverless)"]
+    User([User]) -->|Upload Files| Frontend["Frontend (Web)"]
+    Frontend -->|POST /analyze| MainServer["Main Server (FastAPI)"]
     
-    subgraph "Local / Main Server"
-        MainAPI
+    subgraph Local_Environment
+        Frontend
+        MainServer
+        Storage[(Uploads Dir)]
     end
     
-    subgraph "Modal Cloud"
-        Modal --> Demucs["Source Separation Model"]
-        Modal --> EffectorModel["Effect Prediction Model"]
+    MainServer -->|File Stream| GPUServer[GPU Server (Modal)]
+    
+    subgraph Cloud_GPU
+        GPUServer
+        Model1[[Query-Bandit Model]]
+        Model2[[Effector Predictor]]
     end
+    
+    GPUServer -->|Extract Guitar| Model1
+    GPUServer -->|Predict Params| Model2
+    
+    Model1 -->|Extracted Audio| GPUServer
+    Model2 -->|Parameters| GPUServer
+    
+    GPUServer -->|Result JSON + Audio| MainServer
+    MainServer -->|Save Audio| Storage
+    MainServer -->|SSE Streaming + Audio URL| Frontend
+    
+    Frontend -->|GET /uploads/...| Storage
 ```
 
-- **Frontend**: HTML/CSS/Vanilla JS (User Interface)
-- **Main API**: FastAPI (Orchestrator, File Validation, Stream Response)
-- **GPU Server**: Modal (Serverless GPU, AI Models Execution)
+### 컴포넌트별 역할
 
-## 📁 프로젝트 구조
+1.  **Main Server (`main.py`)**
+    *   **역할**: 클라이언트 요청 처리, 파일 업로드 관리, 결과 스트리밍, 정적 파일 서빙.
+    *   **기술**: Python FastAPI, httpx, aiofiles.
+    *   **동작**: 사용자의 파일을 받아 GPU 서버로 전달하고, 결과를 받아 프론트엔드로 중계하며 추출된 오디오 파일을 로컬에 저장하여 제공합니다.
+
+2.  **GPU Server (`gpu-server/app.py`)**
+    *   **역할**: 고성능 AI 모델 추론 (기타 추출 및 이펙터 분석).
+    *   **기술**: Modal (Serverless GPU), PyTorch, Query-Bandit.
+    *   **특징**: A10G GPU를 사용하여 무거운 연산을 처리하며, 필요할 때만 실행되는 Serverless 구조입니다.
+
+3.  **Frontend (`frontend/`)**
+    *   **역할**: 사용자 인터페이스 제공 및 오디오 재생.
+    *   **기술**: HTML5, CSS3, Vanilla JavaScript.
+
+---
+
+## 🚀 설치 및 실행 방법 (Getting Started)
+
+### 1. 사전 요구 사항 (Prerequisites)
+*   Python 3.10 이상
+*   [Modal](https://modal.com/) 계정 및 CLI 설정 (`pip install modal` -> `modal setup`)
+
+### 2. 프로젝트 클론
+```bash
+git clone https://github.com/your-username/boss-effector.git
+cd boss-effector
+```
+
+### 3. 환경 변수 설정
+프로젝트 루트에 `.env` 파일을 생성하고 GPU 서버 URL을 설정해야 합니다. (GPU 서버 배포 후 생성된 URL 입력)
+
+```env
+# .env 예시
+GPU_SERVER_URL=https://your-modal-app-url.modal.run
+```
+
+### 4. GPU 서버 실행 (Modal)
+먼저 GPU 서버를 실행하여 URL을 확보합니다.
+
+```bash
+# 개발 모드 (터미널이 열려있는 동안만 실행)
+modal serve gpu-server/app.py
+
+# 또는 영구 배포
+# modal deploy gpu-server/app.py
+```
+*실행 후 출력되는 URL을 복사하여 `.env` 파일에 입력하세요.*
+
+### 5. 메인 서버 실행 (Local)
+필요한 패키지를 설치하고 서버를 시작합니다.
+
+```bash
+# 가상환경 생성 및 활성화 (권장)
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 패키지 설치
+pip install -r requirements.txt
+
+# 서버 실행
+python main.py
+```
+
+### 6. 서비스 접속
+웹 브라우저에서 `frontend/index.html` 파일을 열거나, 로컬 웹 서버를 통해 접속합니다.
+(VS Code의 'Live Server' 확장 사용 권장)
+
+---
+
+## 📂 폴더 구조 (Folder Structure)
 
 ```
 boss-effector/
@@ -45,105 +152,23 @@ boss-effector/
 └── README.md
 ```
 
-## 🚀 시작하기 (Getting Started)
+---
 
-### 1. 환경 설정
+## 📝 API Reference
 
-먼저 프로젝트를 클론하고 의존성을 설치합니다.
-
-```bash
-# 레포지토리 클론
-git clone https://github.com/your-username/boss-effector.git
-cd boss-effector
-
-# Python 가상환경 생성 및 활성화 (권장)
-python -m venv venv
-source venv/bin/activate  # Mac/Linux
-# venv\Scripts\activate   # Windows
-
-# 메인 서버 의존성 설치
-pip install -r requirements.txt
-```
-
-### 2. GPU 서버 배포 (Modal)
-
-이 프로젝트는 무거운 AI 모델 처리를 위해 [Modal](https://modal.com/)을 사용합니다.
-
-1.  **Modal 설치 및 로그인**:
-    ```bash
-    pip install modal
-    modal setup
-    ```
-
-2.  **GPU 서버 실행 (Dev Mode)**:
-    개발 중에는 코드가 변경되면 자동으로 재배포되는 `serve` 명령어를 사용하세요.
-    ```bash
-    modal serve gpu-server/app.py
-    ```
-    *터미널에 출력되는 URL(예: `https://your-username--boss-effector-gpu-fastapi-app.modal.run`)을 복사하세요.*
-
-3.  **GPU 서버 배포 (Production)**:
-    ```bash
-    modal deploy gpu-server/app.py
-    ```
-
-### 3. 메인 서버 설정 및 실행
-
-1.  **.env 파일 생성**:
-    프로젝트 루트에 `.env` 파일을 생성하고, 위에서 복사한 Modal URL을 입력합니다.
-
-    ```env
-    # .env
-    GPU_SERVER_URL=https://your-username--boss-effector-gpu-fastapi-app.modal.run
-    ```
-
-2.  **메인 서버 실행**:
-    ```bash
-    uvicorn main:app --reload --port 8000
-    ```
-    서버가 `http://localhost:8000`에서 실행됩니다.
-
-### 4. 프론트엔드 실행
-
-별도의 빌드 과정 없이 정적 파일 서버로 실행하거나, `index.html`을 브라우저에서 직접 열어도 됩니다.
-
-```bash
-# Python 내장 서버 사용 (추천)
-python -m http.server 3000 --directory frontend
-```
-브라우저에서 `http://localhost:3000`으로 접속하세요.
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/analyze` | 오디오 파일(원곡, 샘플)을 업로드하고 분석을 시작합니다. (SSE 스트리밍) |
+| `GET` | `/health` | 메인 서버 및 GPU 서버의 연결 상태를 확인합니다. |
+| `GET` | `/uploads/{filename}` | 추출된 오디오 파일을 다운로드/재생합니다. |
 
 ---
 
-## 🛠️ 개발 가이드
+## ⚠️ 주의 사항
+*   **GPU 서버 초기화**: Modal 컨테이너가 처음 실행될 때(`Cold Start`) 모델 가중치를 로드하느라 약 1~2분 정도 소요될 수 있습니다.
+*   **파일 관리**: `uploads/` 폴더에 저장된 파일은 자동으로 삭제되지 않으므로, 주기적인 정리가 필요할 수 있습니다.
 
-### 로컬 GPU 서버 실행 (옵션)
-Modal을 사용하지 않고 로컬 GPU(CUDA)를 사용하여 테스트하려면 다음과 같이 실행합니다.
+---
 
-```bash
-# GPU 서버 의존성 설치
-pip install -r gpu-server/requirements-gpu.txt
-
-# 로컬에서 GPU 서버 실행 (포트 8001)
-cd gpu-server
-uvicorn app:web_app --reload --port 8001
-```
-이 경우 `.env` 파일의 `GPU_SERVER_URL`을 `http://localhost:8001`로 변경해야 합니다.
-
-## 🔌 API 문서
-
-### Main API (Port 8000)
-- `GET /`: 서비스 상태 및 설정 정보 확인
-- `GET /health`: GPU 서버와의 연결 상태 확인
-- `POST /analyze`: (Stream) 오디오 파일을 업로드하고 분석 결과 스트림 수신
-
-### GPU Server API (Modal / Port 8001)
-- `POST /extract-guitar`: 원곡에서 기타 트랙 분리 (Demucs)
-- `POST /predict-effector`: 기타 샘플과 추출된 트랙을 비교하여 이펙터 예측
-
-## 🔒 보안 및 주의사항
-- **.env**: API URL 등 민감한 정보가 포함될 수 있으므로 Git에 커밋하지 마세요.
-- **비용**: Modal은 GPU 사용 시간에 따라 과금되므로, 사용하지 않을 때는 `modal serve`를 종료하거나 앱을 중지하세요.
-
-## 📝 라이선스
+## License
 MIT License
