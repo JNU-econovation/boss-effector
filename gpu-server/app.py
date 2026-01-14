@@ -190,9 +190,9 @@ async def lifespan(app: FastAPI):
 web_app = FastAPI(title="Boss Effector GPU Server", lifespan=lifespan)
 
 
+# GPU 서버 상태
 @web_app.get("/")
 async def root():
-    """GPU 서버 상태"""
     return {
         "service": "Boss Effector GPU Server",
         "device": DEVICE,
@@ -207,9 +207,9 @@ async def root():
     }
 
 
+# 헬스체크 엔드포인트
 @web_app.get("/health")
 async def health_check():
-    """헬스체크"""
     return {
         "status": "healthy",
         "device": DEVICE,
@@ -217,11 +217,11 @@ async def health_check():
     }
 
 
+# 기타소리 추출 엔드포인트
 @web_app.post("/extract-guitar")
 async def extract_guitar(
     background_tasks: BackgroundTasks, audio: UploadFile = File(...)
 ):
-    """원곡에서 기타 소리 추출"""
     input_path = None
     output_path = None
 
@@ -258,11 +258,11 @@ async def extract_guitar(
                 pass
 
 
+# 기타 이펙터 분석 엔드포인트
 @web_app.post("/predict-effector")
 async def predict_effector(
     guitar_sample: UploadFile = File(...), extracted_guitar: UploadFile = File(...)
 ):
-    """이펙터 종류와 파라미터 예측"""
     sample_path = None
     extracted_path = None
 
