@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
@@ -37,6 +38,9 @@ ALLOWED_AUDIO_FORMATS = {".wav", ".mp3", ".m4a", ".mp4"}
 # 임시 파일 저장
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# 정적 파일 서빙 (추출된 오디오 파일 제공용)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 async def extract_guitar_from_song(song_path: str, guitar_sample_path: str, output_path: str) -> None:
@@ -217,6 +221,9 @@ async def process_analysis_stream(
         await asyncio.sleep(0.5)
 
         # 5단계: 완료 (100%)
+        # 추출된 오디오 파일의 URL을 결과에 포함
+        result['audio_url'] = f"/uploads/{extracted_guitar_path.name}"
+        
         yield f"data: {json.dumps({'status': 'progress', 'progress': 100, 'message': '🎉 모든 분석이 완료되었습니다!'})}\n\n"
         yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
 
@@ -224,8 +231,9 @@ async def process_analysis_stream(
         yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
 
     finally:
-        # 임시 파일 정리
-        for path in [guitar_sample_path, song_path, extracted_guitar_path]:
+        # 임시 파일 정리 (주의: extracted_guitar_path는 사용자가 들어봐야 하므로 바로 지우면 안 됨)
+        # TODO: 주기적으로 uploads 폴더를 비우는 스케줄러가 필요할 수 있음
+        for path in [guitar_sample_path, song_path]:
             if path and path.exists():
                 try:
                     path.unlink()
