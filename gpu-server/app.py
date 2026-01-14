@@ -1,198 +1,263 @@
 import os
+import shutil
+import subprocess
 import tempfile
+import torch
 from pathlib import Path
-from typing import Dict, Any, AsyncGenerator, Optional
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 import modal
-import torch
-import torchaudio
-import librosa
-import soundfile as sf
-import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 # -----------------------------------------------------------------------------
-# Modal Configuration
+# 1. Image Definition & Dependencies
 # -----------------------------------------------------------------------------
 
+MODEL_URL = "https://zenodo.org/records/13694558/files/ev-pre-aug.ckpt?download=1"
+
+# Query-Bandit 및 오디오 처리를 위한 이미지 정의
 image = (
     modal.Image.debian_slim()
-    .apt_install("ffmpeg", "libsndfile1")
+    .apt_install("git", "wget", "ffmpeg", "libsndfile1", "aria2")
     .pip_install(
+        # Web Server
         "fastapi==0.109.0",
         "uvicorn[standard]==0.27.0",
         "python-multipart==0.0.6",
+        # Audio & ML
         "librosa==0.10.1",
         "soundfile==0.12.1",
         "numpy==1.24.3",
         "torch==2.1.0",
         "torchaudio==2.1.0",
-        # "demucs==4.0.0", # Uncomment when ready for real model
+        # Query-Bandit Dependencies
+        "pytorch_lightning==2.1.0",
+        "hydra-core==1.3.2",
+        "omegaconf==2.3.0",
+        "jsonargparse[signatures]>=4.27.7",
+    )
+    # Repository Setup
+    .run_commands(
+        "git clone https://github.com/kwatcharasupat/query-bandit /app/query-bandit"
+    )
+    # Weights Setup (Repository 루트에 바로 다운로드)
+    .run_commands(
+        f"aria2c -x 16 -s 16 -k 1M -o ev-pre-aug.ckpt -d /app/query-bandit '{MODEL_URL}'",
     )
 )
 
 app = modal.App("boss-effector-gpu")
 
 # -----------------------------------------------------------------------------
-# Application State & Constants
+# Application Constants
 # -----------------------------------------------------------------------------
 
-# Global state for models
-ml_models: Dict[str, Any] = {"demucs": None, "effector": None}
-
-# GPU Setup
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Temporary Directory (Use /tmp for container compatibility)
-TEMP_DIR = Path(tempfile.gettempdir()) / "boss_effector"
-
 # -----------------------------------------------------------------------------
-# Model Loading & Utilities
+# 2. Model Logic (Class-based for Statefulness)
 # -----------------------------------------------------------------------------
 
 
-def load_demucs_model():
-    """Demucs 모델 로드 (음원 분리용)"""
-    try:
-        # from demucs.pretrained import get_model
-        # model = get_model('htdemucs')
-        # model.to(DEVICE)
-        # return model
-        print(f"🚀 Using device: {DEVICE}")
-        return None  # 현재는 시뮬레이션
-    except Exception as e:
-        print(f"⚠️  Demucs 모델 로드 실패: {e}")
-        return None
+@app.cls(image=image, gpu="T4", timeout=600, container_idle_timeout=60)
+class AudioInference:
+    """
+    기타 추출 및 이펙터 예측을 담당하는 추론 클래스입니다.
+    클래스로 구조화하여 향후 모델 로드 상태를 유지할 수 있습니다.
+    """
+
+    def __enter__(self):
+        # 컨테이너 시작 시 실행 (모델 로드 등)
+        # 현재 Query-Bandit은 CLI 기반이라 별도 로드가 없지만,
+        # 나중에 Effector 예측 모델을 여기서 self.model = load_model() 형태로 로드하면 매우 빠릅니다.
+        self.tmp_base = Path(tempfile.gettempdir()) / "boss_effector"
+        self.tmp_base.mkdir(parents=True, exist_ok=True)
+        print("✅ AudioInference initialized.")
+
+    @modal.method()
+    def run_query_bandit(
+        self, input_bytes: bytes, query_bytes: bytes, filename_prefix: str
+    ) -> str:
+        """Query-Bandit CLI 실행"""
+
+        # 작업별 격리된 디렉토리 생성
+        job_id = os.urandom(4).hex()
+        job_dir = self.tmp_base / f"job_{job_id}"
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            input_path = job_dir / f"input_{filename_prefix}"
+            query_path = job_dir / f"query_{filename_prefix}"
+            output_dir = job_dir / "output"
+            output_dir.mkdir(exist_ok=True)
+
+            # 바이트 데이터 저장
+            with open(input_path, "wb") as f:
+                f.write(input_bytes)
+            with open(query_path, "wb") as f:
+                f.write(query_bytes)
+
+            # CLI 실행 (ckpt_path를 레포지토리 루트로 변경)
+            cmd = [
+                "python",
+                "train.py",
+                "inference_byoq",
+                "--ckpt_path",
+                "ev-pre-aug.ckpt", # train.py와 같은 위치에 있으므로 파일명만 써도 무방
+                "--input_path",
+                str(input_path),
+                "--query_path",
+                str(query_path),
+                "--output_path",
+                str(output_dir),
+                "--batch_size",
+                "1",
+                "--use_cuda",
+                "true",
+            ]
+
+            print(f"🚀 Executing Query-Bandit for {filename_prefix}...")
+
+            # subprocess 실행 (cwd는 레포지토리 루트)
+            env = os.environ.copy()
+            env["CONFIG_ROOT"] = "./config"
+
+            result = subprocess.run(
+                cmd, cwd="/app/query-bandit", env=env, capture_output=True, text=True
+            )
+
+            if result.returncode != 0:
+                print(f"❌ Error: {result.stderr}")
+                raise Exception(f"Model Inference Failed: {result.stderr}")
+
+            # 결과 파일 탐색
+            output_files = list(output_dir.glob("*.wav")) + list(
+                output_dir.rglob("*.wav")
+            )
+            if not output_files:
+                raise Exception("Output file not found after inference.")
+
+            return str(output_files[0])
+
+        except Exception as e:
+            # 에러 발생 시 정리하고 재발생
+            shutil.rmtree(job_dir)
+            raise e
+
+    @modal.method()
+    def predict_effector(
+        self, sample_bytes: bytes, extracted_bytes: bytes
+    ) -> Dict[str, Any]:
+        """
+        [확장 포인트] 이펙터 파라미터 예측
+        향후 실제 PyTorch/TensorFlow 모델을 self.model로 로드하여 여기서 inference 수행
+        """
+        import numpy as np
+
+        # (시뮬레이션 로직 - 실제 구현 시 교체)
+        effector_types = [
+            "Overdrive",
+            "Distortion",
+            "Fuzz",
+            "Chorus",
+            "Delay",
+            "Reverb",
+        ]
+        return {
+            "effector_type": str(np.random.choice(effector_types)),
+            "parameters": {
+                "Gain": f"{np.random.uniform(1, 10):.1f}",
+                "Tone": f"{np.random.uniform(1, 10):.1f}",
+                "Level": f"{np.random.uniform(1, 10):.1f}",
+            },
+            "confidence": 0.95,
+        }
 
 
-def load_effector_model():
-    """이펙터 예측 모델 로드"""
-    try:
-        # model = torch.load('models/effector_classifier.pth')
-        # model.to(DEVICE)
-        # model.eval()
-        # return model
-        return None  # 현재는 시뮬레이션
-    except Exception as e:
-        print(f"⚠️  이펙터 모델 로드 실패: {e}")
-        return None
+# -----------------------------------------------------------------------------
+# 3. FastAPI Server
+# -----------------------------------------------------------------------------
+
+web_app = FastAPI(title="Boss Effector GPU Server")
+
+# Modal Class 인스턴스 (컨테이너 내에서 재사용됨)
+inference_service = AudioInference()
 
 
-def remove_file(path: str):
-    """파일 삭제 유틸리티 (백그라운드 작업용)"""
+def cleanup_file(path: str):
+    """파일/디렉토리 삭제 (상위 디렉토리인 job_dir 삭제)"""
     try:
         p = Path(path)
-        if p.exists():
+        # job_xxx 폴더를 찾아서 삭제
+        if "job_" in p.parent.name:
+            shutil.rmtree(p.parent)
+        elif p.exists():
             p.unlink()
     except Exception as e:
-        print(f"⚠️ 파일 삭제 실패 ({path}): {e}")
+        print(f"⚠️ Cleanup failed: {e}")
 
 
-async def separate_guitar_with_demucs(audio_path: str, output_path: str) -> None:
-    """Demucs를 사용하여 기타 트랙 분리"""
-    model = ml_models.get("demucs")
+@web_app.post("/extract-guitar")
+async def extract_guitar_endpoint(
+    background_tasks: BackgroundTasks,
+    audio: UploadFile = File(...),  # 원곡
+    query: UploadFile = File(...),  # 기타 샘플 (Query) - 필수!
+):
+    try:
+        # 1. 데이터 읽기
+        audio_bytes = await audio.read()
+        query_bytes = await query.read()
 
-    if model is not None:
-        # 실제 Demucs 사용 코드
-        # from demucs.apply import apply_model
-        # waveform, sr = torchaudio.load(audio_path)
-        # sources = apply_model(model, waveform.to(DEVICE))
-        # guitar = sources[0, 2]  # 기타 채널
-        # torchaudio.save(output_path, guitar.cpu(), sr)
-        pass
+        # 2. Modal Class 메서드 호출 (로컬 컨테이너 내 직접 호출)
+        # output_path는 컨테이너 내부의 임시 경로임
+        output_path = inference_service.run_query_bandit.local(
+            audio_bytes, query_bytes, audio.filename
+        )
 
-    # 시뮬레이션: 원본을 그대로 저장 및 간단한 처리
-    y, sr = librosa.load(audio_path, sr=22050)
-    guitar_enhanced = y * 0.8  # 임시 처리
-    sf.write(output_path, guitar_enhanced, sr)
+        # 3. 결과 반환 및 정리 예약
+        return FileResponse(
+            output_path,
+            media_type="audio/wav",
+            filename=f"extracted_{audio.filename}.wav",
+            background=background_tasks.add_task(cleanup_file, output_path),
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-async def predict_effector_with_model(
-    sample_path: str, extracted_path: str
-) -> Dict[str, Any]:
-    """딥러닝 모델로 이펙터 예측"""
-    model = ml_models.get("effector")
+@web_app.post("/predict-effector")
+async def predict_effector_endpoint(
+    guitar_sample: UploadFile = File(...), extracted_guitar: UploadFile = File(...)
+):
+    try:
+        sample_bytes = await guitar_sample.read()
+        extracted_bytes = await extracted_guitar.read()
 
-    if model is not None:
-        # 실제 모델 사용 코드
-        pass
+        result = inference_service.predict_effector.local(sample_bytes, extracted_bytes)
+        return JSONResponse(content=result)
 
-    # 시뮬레이션: 오디오 특성 분석
-    y_sample, sr_sample = librosa.load(sample_path, sr=22050)
-    y_extracted, sr_extracted = librosa.load(extracted_path, sr=22050)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # 간단한 오디오 분석
-    rms_sample = np.sqrt(np.mean(y_sample**2))
-    rms_extracted = np.sqrt(np.mean(y_extracted**2))
 
-    spectral_centroid_sample = np.mean(
-        librosa.feature.spectral_centroid(y=y_sample, sr=sr_sample)
-    )
-    spectral_centroid_extracted = np.mean(
-        librosa.feature.spectral_centroid(y=y_extracted, sr=sr_extracted)
-    )
-
-    # 시뮬레이션 결과
-    effector_types = ["Overdrive", "Distortion", "Fuzz", "Chorus", "Delay", "Reverb"]
-    effector_type = np.random.choice(effector_types)
-
-    parameters = {
-        "Gain": f"{np.random.uniform(5.0, 9.0):.1f}",
-        "Tone": f"{np.random.uniform(4.0, 8.0):.1f}",
-        "Level": f"{np.random.uniform(6.0, 9.0):.1f}",
-        "Drive": np.random.choice(["Low", "Medium", "High"]),
-        "EQ_Bass": f"{np.random.uniform(-3, 3):+.1f}dB",
-        "EQ_Mid": f"{np.random.uniform(-3, 3):+.1f}dB",
-        "EQ_Treble": f"{np.random.uniform(-3, 3):+.1f}dB",
-    }
-
+@web_app.get("/health")
+def health():
     return {
-        "effector_type": effector_type,
-        "parameters": parameters,
-        "confidence": float(np.random.uniform(0.75, 0.95)),
-        "analysis": {
-            "sample_rms": float(rms_sample),
-            "extracted_rms": float(rms_extracted),
-            "spectral_centroid_diff": float(
-                abs(spectral_centroid_sample - spectral_centroid_extracted)
-            ),
-        },
+        "status": "healthy",
+        "gpu": "available" if torch.cuda.is_available() else "none",
     }
-
-
-# -----------------------------------------------------------------------------
-# FastAPI Setup
-# -----------------------------------------------------------------------------
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    FastAPI Lifespan Manager
-    - 앱 시작 시: 모델 로드 및 임시 디렉토리 생성
-    - 앱 종료 시: 정리
-    """
-    # Startup
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    ml_models["demucs"] = load_demucs_model()
-    ml_models["effector"] = load_effector_model()
-    print("✅ Models loaded and initialized.")
-
-    yield
-
-    # Shutdown
-    ml_models.clear()
-    print("🛑 Shutting down and clearing models.")
-
-
-web_app = FastAPI(title="Boss Effector GPU Server", lifespan=lifespan)
 
 
 # GPU 서버 상태
 @web_app.get("/")
 async def root():
+    # 모델 가중치 파일 확인 (Repository 루트)
+    weights_path = Path("/app/query-bandit/ev-pre-aug.ckpt")
+    weights_loaded = weights_path.exists() and weights_path.stat().st_size > 0
+
     return {
         "service": "Boss Effector GPU Server",
         "device": DEVICE,
@@ -200,103 +265,15 @@ async def root():
         "gpu_name": torch.cuda.get_device_name(0)
         if torch.cuda.is_available()
         else "N/A",
-        "models_loaded": {
-            "demucs": ml_models["demucs"] is not None,
-            "effector": ml_models["effector"] is not None,
+        "status": {
+            "model_weights_loaded": weights_loaded,
+            "query_bandit_ready": weights_loaded,  # CLI 기반이므로 가중치만 있으면 준비 완료
         },
     }
 
 
-# 헬스체크 엔드포인트
-@web_app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "device": DEVICE,
-        "gpu_available": torch.cuda.is_available(),
-    }
-
-
-# 기타소리 추출 엔드포인트
-@web_app.post("/extract-guitar")
-async def extract_guitar(
-    background_tasks: BackgroundTasks, audio: UploadFile = File(...)
-):
-    input_path = None
-    output_path = None
-
-    try:
-        # 임시 파일로 저장
-        input_path = TEMP_DIR / f"input_{audio.filename}"
-        output_path = TEMP_DIR / f"guitar_{audio.filename}"
-
-        content = await audio.read()
-        with open(input_path, "wb") as f:
-            f.write(content)
-
-        # GPU로 기타 추출
-        await separate_guitar_with_demucs(str(input_path), str(output_path))
-
-        # 전송 후 파일 삭제 예약
-        background_tasks.add_task(remove_file, str(output_path))
-
-        # 추출된 기타 파일 반환
-        return FileResponse(
-            output_path, media_type="audio/wav", filename=f"guitar_{audio.filename}"
-        )
-
-    except Exception as e:
-        if output_path and output_path.exists():
-            output_path.unlink()
-        raise HTTPException(status_code=500, detail=f"기타 추출 실패: {str(e)}")
-
-    finally:
-        if input_path and input_path.exists():
-            try:
-                input_path.unlink()
-            except:
-                pass
-
-
-# 기타 이펙터 분석 엔드포인트
-@web_app.post("/predict-effector")
-async def predict_effector(
-    guitar_sample: UploadFile = File(...), extracted_guitar: UploadFile = File(...)
-):
-    sample_path = None
-    extracted_path = None
-
-    try:
-        sample_path = TEMP_DIR / f"sample_{guitar_sample.filename}"
-        extracted_path = TEMP_DIR / f"extracted_{extracted_guitar.filename}"
-
-        with open(sample_path, "wb") as f:
-            f.write(await guitar_sample.read())
-
-        with open(extracted_path, "wb") as f:
-            f.write(await extracted_guitar.read())
-
-        # GPU로 이펙터 예측
-        result = await predict_effector_with_model(
-            str(sample_path), str(extracted_path)
-        )
-
-        return result
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"이펙터 예측 실패: {str(e)}")
-
-    finally:
-        for path in [sample_path, extracted_path]:
-            if path and path.exists():
-                try:
-                    path.unlink()
-                except:
-                    pass
-
-
 # -----------------------------------------------------------------------------
-# Modal Entrypoint
+# 4. Entrypoint
 # -----------------------------------------------------------------------------
 
 
@@ -309,5 +286,4 @@ def fastapi_app():
 if __name__ == "__main__":
     import uvicorn
 
-    # 로컬 테스트용
     uvicorn.run(web_app, host="0.0.0.0", port=8001)
