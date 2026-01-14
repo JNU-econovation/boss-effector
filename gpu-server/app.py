@@ -26,17 +26,25 @@ image = (
         "fastapi==0.109.0",
         "uvicorn[standard]==0.27.0",
         "python-multipart==0.0.6",
-        # Audio & ML
+        # Audio & ML (Core)
         "librosa==0.10.1",
         "soundfile==0.12.1",
         "numpy==1.24.3",
         "torch==2.1.0",
         "torchaudio==2.1.0",
-        # Query-Bandit Dependencies
+        "pandas==2.1.1",
+        "scipy==1.11.3",
+        "scikit-learn==1.3.1",
+        # Query-Bandit & Model Dependencies
         "pytorch_lightning==2.1.0",
         "hydra-core==1.3.2",
         "omegaconf==2.3.0",
         "jsonargparse[signatures]>=4.27.7",
+        "torch-audiomentations==0.11.1",
+        "einops==0.7.0",
+        "wandb==0.16.0",
+        "hear21passt",  # 버전 명시 제거 (최신 버전 사용)
+        "fire==0.5.0",
     )
     # Repository Setup
     .run_commands(
@@ -61,7 +69,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # -----------------------------------------------------------------------------
 
 
-@app.cls(image=image, gpu="T4", timeout=600, container_idle_timeout=60)
+@app.cls(image=image, gpu="A10G", timeout=600, scaledown_window=60)
 class AudioInference:
     """
     기타 추출 및 이펙터 예측을 담당하는 추론 클래스입니다.
@@ -93,6 +101,11 @@ class AudioInference:
             output_dir = job_dir / "output"
             output_dir.mkdir(exist_ok=True)
 
+            # 출력 파일 경로 명시 (디렉토리 + 파일명)
+            # Query-Bandit은 output_path 인자로 주어진 경로에 직접 파일을 씁니다.
+            # 확장자를 .wav로 지정해야 torchaudio가 포맷을 인식합니다.
+            output_file_path = output_dir / "extracted.wav"
+
             # 바이트 데이터 저장
             with open(input_path, "wb") as f:
                 f.write(input_bytes)
@@ -105,13 +118,13 @@ class AudioInference:
                 "train.py",
                 "inference_byoq",
                 "--ckpt_path",
-                "ev-pre-aug.ckpt", # train.py와 같은 위치에 있으므로 파일명만 써도 무방
+                "ev-pre-aug.ckpt",  # train.py와 같은 위치에 있으므로 파일명만 써도 무방
                 "--input_path",
                 str(input_path),
                 "--query_path",
                 str(query_path),
                 "--output_path",
-                str(output_dir),
+                str(output_file_path),  # 디렉토리가 아닌 전체 파일 경로 전달
                 "--batch_size",
                 "1",
                 "--use_cuda",
@@ -132,14 +145,15 @@ class AudioInference:
                 print(f"❌ Error: {result.stderr}")
                 raise Exception(f"Model Inference Failed: {result.stderr}")
 
-            # 결과 파일 탐색
-            output_files = list(output_dir.glob("*.wav")) + list(
-                output_dir.rglob("*.wav")
-            )
-            if not output_files:
-                raise Exception("Output file not found after inference.")
+            # 결과 파일 확인
+            if not output_file_path.exists():
+                # 혹시 다른 이름으로 저장되었는지 확인 (방어 코드)
+                files = list(output_dir.glob("*.wav"))
+                if files:
+                    return str(files[0])
+                raise Exception(f"Output file not found at {output_file_path}")
 
-            return str(output_files[0])
+            return str(output_file_path)
 
         except Exception as e:
             # 에러 발생 시 정리하고 재발생
@@ -277,7 +291,7 @@ async def root():
 # -----------------------------------------------------------------------------
 
 
-@app.function(image=image, gpu="T4", timeout=600)
+@app.function(image=image, gpu="A10G", timeout=600)
 @modal.asgi_app()
 def fastapi_app():
     return web_app
