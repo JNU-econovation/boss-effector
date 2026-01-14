@@ -8,16 +8,16 @@
 
 ```mermaid
 graph TD
-    Client[Frontend (Web)] -->|HTTP| MainAPI[Main API Server (Local/Cloud)]
-    MainAPI -->|HTTPS| Modal[Modal GPU Server (Serverless)]
+    Client["Frontend (Web)"] -->|HTTP| MainAPI["Main API Server (Local/Cloud)"]
+    MainAPI -->|HTTPS| Modal["Modal GPU Server (Serverless)"]
     
     subgraph "Local / Main Server"
         MainAPI
     end
     
     subgraph "Modal Cloud"
-        Modal --> Demucs[Source Separation Model]
-        Modal --> EffectorModel[Effect Prediction Model]
+        Modal --> Demucs["Source Separation Model"]
+        Modal --> EffectorModel["Effect Prediction Model"]
     end
 ```
 
