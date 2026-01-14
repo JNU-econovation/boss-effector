@@ -44,7 +44,7 @@ async def extract_guitar_from_song(song_path: str, output_path: str) -> None:
     GPU 서버를 통해 원곡에서 기타 소리 추출
     """
     try:
-        async with httpx.AsyncClient(timeout=600.0) as client:
+        async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
             # GPU 서버로 파일 전송
             async with aiofiles.open(song_path, "rb") as f:
                 file_content = await f.read()
@@ -78,7 +78,7 @@ async def predict_effector_params(
     GPU 서버를 통해 이펙터와 파라미터 예측
     """
     try:
-        async with httpx.AsyncClient(timeout=600.0) as client:
+        async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
             # 두 파일을 GPU 서버로 전송
             async with (
                 aiofiles.open(guitar_sample_path, "rb") as f1,
@@ -245,7 +245,7 @@ async def root():
 async def health_check():
     gpu_status = "disconnected"
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
             response = await client.get(f"{GPU_SERVER_URL}/health")
             if response.status_code == 200:
                 gpu_status = "connected"
