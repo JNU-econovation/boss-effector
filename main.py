@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 import os
+from dotenv import load_dotenv
 from pathlib import Path
 import librosa
 import soundfile as sf
@@ -12,6 +13,9 @@ from typing import Dict, Any
 import tempfile
 import httpx
 import aiofiles
+
+# .env 파일 로드
+load_dotenv()
 
 app = FastAPI(title="Boss Effector API")
 
@@ -229,7 +233,6 @@ async def root():
         "service": "Boss Effector API",
         "version": "1.0.0",
         "status": "running",
-        "gpu_server": GPU_SERVER_URL,
         "endpoints": {
             "analyze": f"{app.url_path_for('analyze_guitar_effect')} (POST)",
             "health": f"{app.url_path_for('health_check')} (GET)",
@@ -246,7 +249,8 @@ async def health_check():
             response = await client.get(f"{GPU_SERVER_URL}/health")
             if response.status_code == 200:
                 gpu_status = "connected"
-    except:
+    except Exception as e:
+        print(f"Health check error: {str(e)}")
         pass
 
     return {"status": "healthy", "gpu_server": gpu_status}
