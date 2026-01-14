@@ -45,6 +45,7 @@ image = (
         "wandb==0.16.0",
         "hear21passt",  # 버전 명시 제거 (최신 버전 사용)
         "fire==0.5.0",
+        # "torchcodec", # 설치 오류로 일단 제거 (필수 의존성 아닐 가능성 높음)
     )
     # Repository Setup
     .run_commands(
@@ -100,10 +101,8 @@ class AudioInference:
             query_path = job_dir / f"query_{filename_prefix}"
             output_dir = job_dir / "output"
             output_dir.mkdir(exist_ok=True)
-
+            
             # 출력 파일 경로 명시 (디렉토리 + 파일명)
-            # Query-Bandit은 output_path 인자로 주어진 경로에 직접 파일을 씁니다.
-            # 확장자를 .wav로 지정해야 torchaudio가 포맷을 인식합니다.
             output_file_path = output_dir / "extracted.wav"
 
             # 바이트 데이터 저장
@@ -124,9 +123,9 @@ class AudioInference:
                 "--query_path",
                 str(query_path),
                 "--output_path",
-                str(output_file_path),  # 디렉토리가 아닌 전체 파일 경로 전달
+                str(output_file_path),
                 "--batch_size",
-                "1",
+                "12",
                 "--use_cuda",
                 "true",
             ]
@@ -147,7 +146,6 @@ class AudioInference:
 
             # 결과 파일 확인
             if not output_file_path.exists():
-                # 혹시 다른 이름으로 저장되었는지 확인 (방어 코드)
                 files = list(output_dir.glob("*.wav"))
                 if files:
                     return str(files[0])
@@ -179,6 +177,7 @@ class AudioInference:
             "Delay",
             "Reverb",
         ]
+        
         return {
             "effector_type": str(np.random.choice(effector_types)),
             "parameters": {
@@ -186,7 +185,7 @@ class AudioInference:
                 "Tone": f"{np.random.uniform(1, 10):.1f}",
                 "Level": f"{np.random.uniform(1, 10):.1f}",
             },
-            "confidence": 0.95,
+            "confidence": 0.95
         }
 
 
