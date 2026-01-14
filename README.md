@@ -7,8 +7,6 @@
 ![Modal](https://img.shields.io/badge/Modal-GPU_Server-green?logo=modal&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.1.0-EE4C2C?logo=pytorch&logoColor=white)
 
----
-
 ## ✨ 주요 기능 (Features)
 
 1.  **AI 기반 기타 소리 추출 (Guitar Extraction)**
@@ -25,8 +23,6 @@
 4.  **결과 오디오 즉시 재생**
     *   분석이 완료되면 추출된 기타 사운드를 웹에서 바로 들어보고 다운로드할 수 있습니다.
 
----
-
 ## 🛠️ 시스템 아키텍처 (Architecture)
 
 ```mermaid
@@ -34,18 +30,18 @@ graph TD
     User([User]) -->|Upload Files| Frontend["Frontend (Web)"]
     Frontend -->|POST /analyze| MainServer["Main Server (FastAPI)"]
     
-    subgraph Local_Environment
+    subgraph Local_Environment["Local Environment"]
         Frontend
         MainServer
         Storage[(Uploads Dir)]
     end
     
-    MainServer -->|File Stream| GPUServer[GPU Server (Modal)]
+    MainServer -->|File Stream| GPUServer["GPU Server (Modal)"]
     
-    subgraph Cloud_GPU
+    subgraph Cloud_GPU["Cloud GPU (Modal)"]
         GPUServer
-        Model1[[Query-Bandit Model]]
-        Model2[[Effector Predictor]]
+        Model1[["Query-Bandit Model"]]
+        Model2[["Effector Predictor"]]
     end
     
     GPUServer -->|Extract Guitar| Model1
@@ -76,8 +72,6 @@ graph TD
 3.  **Frontend (`frontend/`)**
     *   **역할**: 사용자 인터페이스 제공 및 오디오 재생.
     *   **기술**: HTML5, CSS3, Vanilla JavaScript.
-
----
 
 ## 🚀 설치 및 실행 방법 (Getting Started)
 
@@ -130,8 +124,6 @@ python main.py
 웹 브라우저에서 `frontend/index.html` 파일을 열거나, 로컬 웹 서버를 통해 접속합니다.
 (VS Code의 'Live Server' 확장 사용 권장)
 
----
-
 ## 📂 폴더 구조 (Folder Structure)
 
 ```
@@ -152,8 +144,6 @@ boss-effector/
 └── README.md
 ```
 
----
-
 ## 📝 API Reference
 
 | Method | Endpoint | Description |
@@ -162,13 +152,9 @@ boss-effector/
 | `GET` | `/health` | 메인 서버 및 GPU 서버의 연결 상태를 확인합니다. |
 | `GET` | `/uploads/{filename}` | 추출된 오디오 파일을 다운로드/재생합니다. |
 
----
-
 ## ⚠️ 주의 사항
 *   **GPU 서버 초기화**: Modal 컨테이너가 처음 실행될 때(`Cold Start`) 모델 가중치를 로드하느라 약 1~2분 정도 소요될 수 있습니다.
 *   **파일 관리**: `uploads/` 폴더에 저장된 파일은 자동으로 삭제되지 않으므로, 주기적인 정리가 필요할 수 있습니다.
 
----
-
-## License
+## ⚓️ License
 MIT License
