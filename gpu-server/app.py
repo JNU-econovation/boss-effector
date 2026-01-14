@@ -1,24 +1,83 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+import os
+import tempfile
+from pathlib import Path
+from typing import Dict, Any, AsyncGenerator, Optional
+from contextlib import asynccontextmanager
+
+import modal
 import torch
 import torchaudio
 import librosa
 import soundfile as sf
 import numpy as np
-from pathlib import Path
-import tempfile
-import os
-from typing import Dict, Any
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 
-app = FastAPI(title="Boss Effector GPU Server")
+# -----------------------------------------------------------------------------
+# Modal Configuration
+# -----------------------------------------------------------------------------
 
-# GPU 설정
+image = (
+    modal.Image.debian_slim()
+    .apt_install("ffmpeg", "libsndfile1")
+    .pip_install(
+        "fastapi==0.109.0",
+        "uvicorn[standard]==0.27.0",
+        "python-multipart==0.0.6",
+        "librosa==0.10.1",
+        "soundfile==0.12.1",
+        "numpy==1.24.3",
+        "torch==2.1.0",
+        "torchaudio==2.1.0",
+        # "demucs==4.0.0", # Uncomment when ready for real model
+    )
+)
+
+app = modal.App("boss-effector-gpu")
+
+# -----------------------------------------------------------------------------
+# Application State & Constants
+# -----------------------------------------------------------------------------
+
+# Global state for models
+ml_models: Dict[str, Any] = {"demucs": None, "effector": None}
+
+# GPU Setup
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"🚀 Using device: {DEVICE}")
 
-# 임시 파일 저장
-TEMP_DIR = Path("temp")
-TEMP_DIR.mkdir(exist_ok=True)
+# Temporary Directory (Use /tmp for container compatibility)
+TEMP_DIR = Path(tempfile.gettempdir()) / "boss_effector"
+
+# -----------------------------------------------------------------------------
+# Model Loading & Utilities
+# -----------------------------------------------------------------------------
+
+
+def load_demucs_model():
+    """Demucs 모델 로드 (음원 분리용)"""
+    try:
+        # from demucs.pretrained import get_model
+        # model = get_model('htdemucs')
+        # model.to(DEVICE)
+        # return model
+        print(f"🚀 Using device: {DEVICE}")
+        return None  # 현재는 시뮬레이션
+    except Exception as e:
+        print(f"⚠️  Demucs 모델 로드 실패: {e}")
+        return None
+
+
+def load_effector_model():
+    """이펙터 예측 모델 로드"""
+    try:
+        # model = torch.load('models/effector_classifier.pth')
+        # model.to(DEVICE)
+        # model.eval()
+        # return model
+        return None  # 현재는 시뮬레이션
+    except Exception as e:
+        print(f"⚠️  이펙터 모델 로드 실패: {e}")
+        return None
 
 
 def remove_file(path: str):
@@ -31,92 +90,33 @@ def remove_file(path: str):
         print(f"⚠️ 파일 삭제 실패 ({path}): {e}")
 
 
-def load_demucs_model():
-    """
-    Demucs 모델 로드 (음원 분리용)
-    실제 구현시 사용
-    """
-    try:
-        # from demucs.pretrained import get_model
-        # model = get_model('htdemucs')
-        # model.to(DEVICE)
-        # return model
-        return None  # 현재는 시뮬레이션
-    except Exception as e:
-        print(f"⚠️  Demucs 모델 로드 실패: {e}")
-        return None
-
-
-def load_effector_model():
-    """
-    이펙터 예측 모델 로드
-    실제 구현시 커스텀 모델 사용
-    """
-    try:
-        # model = torch.load('models/effector_classifier.pth')
-        # model.to(DEVICE)
-        # model.eval()
-        # return model
-        return None  # 현재는 시뮬레이션
-    except Exception as e:
-        print(f"⚠️  이펙터 모델 로드 실패: {e}")
-        return None
-
-
-# 모델 로드
-DEMUCS_MODEL = load_demucs_model()
-EFFECTOR_MODEL = load_effector_model()
-
-
 async def separate_guitar_with_demucs(audio_path: str, output_path: str) -> None:
-    """
-    Demucs를 사용하여 기타 트랙 분리
-    """
-    if DEMUCS_MODEL is not None:
+    """Demucs를 사용하여 기타 트랙 분리"""
+    model = ml_models.get("demucs")
+
+    if model is not None:
         # 실제 Demucs 사용 코드
         # from demucs.apply import apply_model
         # waveform, sr = torchaudio.load(audio_path)
-        # sources = apply_model(DEMUCS_MODEL, waveform.to(DEVICE))
+        # sources = apply_model(model, waveform.to(DEVICE))
         # guitar = sources[0, 2]  # 기타 채널
         # torchaudio.save(output_path, guitar.cpu(), sr)
         pass
 
-    # 시뮬레이션: 원본을 그대로 저장
+    # 시뮬레이션: 원본을 그대로 저장 및 간단한 처리
     y, sr = librosa.load(audio_path, sr=22050)
-
-    # 실제로는 AI 모델이 기타만 추출
-    # 여기서는 약간의 필터링으로 시뮬레이션
     guitar_enhanced = y * 0.8  # 임시 처리
-
     sf.write(output_path, guitar_enhanced, sr)
 
 
 async def predict_effector_with_model(
     sample_path: str, extracted_path: str
 ) -> Dict[str, Any]:
-    """
-    딥러닝 모델로 이펙터 예측
-    """
-    if EFFECTOR_MODEL is not None:
+    """딥러닝 모델로 이펙터 예측"""
+    model = ml_models.get("effector")
+
+    if model is not None:
         # 실제 모델 사용 코드
-        # sample, sr1 = torchaudio.load(sample_path)
-        # extracted, sr2 = torchaudio.load(extracted_path)
-        #
-        # # 특성 추출
-        # features = extract_audio_features(sample, extracted)
-        # features_tensor = torch.tensor(features).to(DEVICE)
-        #
-        # # 모델 추론
-        # with torch.no_grad():
-        #     output = EFFECTOR_MODEL(features_tensor)
-        #     effector_type = decode_effector_type(output)
-        #     parameters = decode_parameters(output)
-        #
-        # return {
-        #     "effector_type": effector_type,
-        #     "parameters": parameters,
-        #     "confidence": float(output.max())
-        # }
         pass
 
     # 시뮬레이션: 오디오 특성 분석
@@ -127,7 +127,6 @@ async def predict_effector_with_model(
     rms_sample = np.sqrt(np.mean(y_sample**2))
     rms_extracted = np.sqrt(np.mean(y_extracted**2))
 
-    # 스펙트럼 분석
     spectral_centroid_sample = np.mean(
         librosa.feature.spectral_centroid(y=y_sample, sr=sr_sample)
     )
@@ -135,7 +134,7 @@ async def predict_effector_with_model(
         librosa.feature.spectral_centroid(y=y_extracted, sr=sr_extracted)
     )
 
-    # 시뮬레이션 결과 (실제로는 모델 출력)
+    # 시뮬레이션 결과
     effector_types = ["Overdrive", "Distortion", "Fuzz", "Chorus", "Delay", "Reverb"]
     effector_type = np.random.choice(effector_types)
 
@@ -163,7 +162,35 @@ async def predict_effector_with_model(
     }
 
 
-@app.get("/")
+# -----------------------------------------------------------------------------
+# FastAPI Setup
+# -----------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI Lifespan Manager
+    - 앱 시작 시: 모델 로드 및 임시 디렉토리 생성
+    - 앱 종료 시: 정리
+    """
+    # Startup
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    ml_models["demucs"] = load_demucs_model()
+    ml_models["effector"] = load_effector_model()
+    print("✅ Models loaded and initialized.")
+
+    yield
+
+    # Shutdown
+    ml_models.clear()
+    print("🛑 Shutting down and clearing models.")
+
+
+web_app = FastAPI(title="Boss Effector GPU Server", lifespan=lifespan)
+
+
+@web_app.get("/")
 async def root():
     """GPU 서버 상태"""
     return {
@@ -174,13 +201,13 @@ async def root():
         if torch.cuda.is_available()
         else "N/A",
         "models_loaded": {
-            "demucs": DEMUCS_MODEL is not None,
-            "effector": EFFECTOR_MODEL is not None,
+            "demucs": ml_models["demucs"] is not None,
+            "effector": ml_models["effector"] is not None,
         },
     }
 
 
-@app.get("/health")
+@web_app.get("/health")
 async def health_check():
     """헬스체크"""
     return {
@@ -190,14 +217,11 @@ async def health_check():
     }
 
 
-@app.post("/extract-guitar")
+@web_app.post("/extract-guitar")
 async def extract_guitar(
     background_tasks: BackgroundTasks, audio: UploadFile = File(...)
 ):
-    """
-    원곡에서 기타 소리 추출
-    GPU를 사용하여 소스 분리
-    """
+    """원곡에서 기타 소리 추출"""
     input_path = None
     output_path = None
 
@@ -206,8 +230,9 @@ async def extract_guitar(
         input_path = TEMP_DIR / f"input_{audio.filename}"
         output_path = TEMP_DIR / f"guitar_{audio.filename}"
 
+        content = await audio.read()
         with open(input_path, "wb") as f:
-            f.write(await audio.read())
+            f.write(content)
 
         # GPU로 기타 추출
         await separate_guitar_with_demucs(str(input_path), str(output_path))
@@ -221,13 +246,11 @@ async def extract_guitar(
         )
 
     except Exception as e:
-        # 에러 발생 시 생성되었을 수도 있는 출력 파일 삭제
         if output_path and output_path.exists():
             output_path.unlink()
         raise HTTPException(status_code=500, detail=f"기타 추출 실패: {str(e)}")
 
     finally:
-        # 입력 파일 정리 (출력은 전송 후 정리)
         if input_path and input_path.exists():
             try:
                 input_path.unlink()
@@ -235,19 +258,15 @@ async def extract_guitar(
                 pass
 
 
-@app.post("/predict-effector")
+@web_app.post("/predict-effector")
 async def predict_effector(
     guitar_sample: UploadFile = File(...), extracted_guitar: UploadFile = File(...)
 ):
-    """
-    이펙터 종류와 파라미터 예측
-    GPU를 사용하여 딥러닝 모델 추론
-    """
+    """이펙터 종류와 파라미터 예측"""
     sample_path = None
     extracted_path = None
 
     try:
-        # 임시 파일로 저장
         sample_path = TEMP_DIR / f"sample_{guitar_sample.filename}"
         extracted_path = TEMP_DIR / f"extracted_{extracted_guitar.filename}"
 
@@ -268,7 +287,6 @@ async def predict_effector(
         raise HTTPException(status_code=500, detail=f"이펙터 예측 실패: {str(e)}")
 
     finally:
-        # 임시 파일 정리
         for path in [sample_path, extracted_path]:
             if path and path.exists():
                 try:
@@ -277,7 +295,19 @@ async def predict_effector(
                     pass
 
 
+# -----------------------------------------------------------------------------
+# Modal Entrypoint
+# -----------------------------------------------------------------------------
+
+
+@app.function(image=image, gpu="T4", timeout=600)
+@modal.asgi_app()
+def fastapi_app():
+    return web_app
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    # 로컬 테스트용
+    uvicorn.run(web_app, host="0.0.0.0", port=8001)
