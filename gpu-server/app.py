@@ -101,7 +101,7 @@ class AudioInference:
             query_path = job_dir / f"query_{filename_prefix}"
             output_dir = job_dir / "output"
             output_dir.mkdir(exist_ok=True)
-            
+
             # 출력 파일 경로 명시 (디렉토리 + 파일명)
             output_file_path = output_dir / "extracted.wav"
 
@@ -177,7 +177,7 @@ class AudioInference:
             "Delay",
             "Reverb",
         ]
-        
+
         return {
             "effector_type": str(np.random.choice(effector_types)),
             "parameters": {
@@ -185,7 +185,7 @@ class AudioInference:
                 "Tone": f"{np.random.uniform(1, 10):.1f}",
                 "Level": f"{np.random.uniform(1, 10):.1f}",
             },
-            "confidence": 0.95
+            "confidence": 0.95,
         }
 
 
@@ -210,6 +210,27 @@ def cleanup_file(path: str):
             p.unlink()
     except Exception as e:
         print(f"⚠️ Cleanup failed: {e}")
+
+
+# GPU 서버 상태
+@web_app.get("/")
+async def root():
+    # 모델 가중치 파일 확인 (Repository 루트)
+    weights_path = Path("/app/query-bandit/ev-pre-aug.ckpt")
+    weights_loaded = weights_path.exists() and weights_path.stat().st_size > 0
+
+    return {
+        "service": "Boss Effector GPU Server",
+        "device": DEVICE,
+        "gpu_available": torch.cuda.is_available(),
+        "gpu_name": torch.cuda.get_device_name(0)
+        if torch.cuda.is_available()
+        else "N/A",
+        "status": {
+            "model_weights_loaded": weights_loaded,
+            "query_bandit_ready": weights_loaded,  # CLI 기반이므로 가중치만 있으면 준비 완료
+        },
+    }
 
 
 @web_app.post("/extract-guitar")
@@ -254,35 +275,6 @@ async def predict_effector_endpoint(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@web_app.get("/health")
-def health():
-    return {
-        "status": "healthy",
-        "gpu": "available" if torch.cuda.is_available() else "none",
-    }
-
-
-# GPU 서버 상태
-@web_app.get("/")
-async def root():
-    # 모델 가중치 파일 확인 (Repository 루트)
-    weights_path = Path("/app/query-bandit/ev-pre-aug.ckpt")
-    weights_loaded = weights_path.exists() and weights_path.stat().st_size > 0
-
-    return {
-        "service": "Boss Effector GPU Server",
-        "device": DEVICE,
-        "gpu_available": torch.cuda.is_available(),
-        "gpu_name": torch.cuda.get_device_name(0)
-        if torch.cuda.is_available()
-        else "N/A",
-        "status": {
-            "model_weights_loaded": weights_loaded,
-            "query_bandit_ready": weights_loaded,  # CLI 기반이므로 가중치만 있으면 준비 완료
-        },
-    }
 
 
 # -----------------------------------------------------------------------------
