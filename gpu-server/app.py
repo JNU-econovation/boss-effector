@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 MODEL_URL = "https://zenodo.org/records/13694558/files/ev-pre-aug.ckpt?download=1"
 
-# Query-Bandit 및 오디오 처리를 위한 이미지 정의
+# 이미지 정의
 image = (
     modal.Image.debian_slim()
     .apt_install("git", "wget", "ffmpeg", "libsndfile1", "aria2")
@@ -43,9 +43,8 @@ image = (
         "torch-audiomentations==0.11.1",
         "einops==0.7.0",
         "wandb==0.16.0",
-        "hear21passt",  # 버전 명시 제거 (최신 버전 사용)
+        "hear21passt",
         "fire==0.5.0",
-        # "torchcodec", # 설치 오류로 일단 제거 (필수 의존성 아닐 가능성 높음)
     )
     # Repository Setup
     .run_commands(
@@ -199,8 +198,8 @@ web_app = FastAPI(title="Boss Effector GPU Server")
 inference_service = AudioInference()
 
 
+# 파일/디렉토리 삭제 (상위 디렉토리인 job_dir 삭제)
 def cleanup_file(path: str):
-    """파일/디렉토리 삭제 (상위 디렉토리인 job_dir 삭제)"""
     try:
         p = Path(path)
         # job_xxx 폴더를 찾아서 삭제
@@ -237,7 +236,7 @@ async def root():
 async def extract_guitar_endpoint(
     background_tasks: BackgroundTasks,
     audio: UploadFile = File(...),  # 원곡
-    query: UploadFile = File(...),  # 기타 샘플 (Query) - 필수!
+    query: UploadFile = File(...),  # 기타 샘플 (Query)
 ):
     try:
         # 1. 데이터 읽기
